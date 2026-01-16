@@ -1,4 +1,4 @@
-use crate::db::{StockLedger, StockSummary, Stats};
+use crate::db::{StockLedger, StockSummary, Stats, HistoryEntry};
 use sqlx::{mysql::MySqlPool, Row};
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -367,7 +367,7 @@ pub async fn confirm_bulk_upload(
 
 #[derive(Serialize)]
 pub struct HistoryResponse {
-    pub items: Vec<StockLedger>,
+    pub items: Vec<HistoryEntry>,
     pub total_count: i64,
 }
 
@@ -386,14 +386,14 @@ pub async fn get_history(
         if !s.is_empty() {
             let s_lower = s.to_lowercase();
             where_clause.push_str(&format!(
-                " WHERE LOWER(l.reference) LIKE '%{}%' OR LOWER(l.transaction_type) LIKE '%{}%' OR LOWER(l.optional_reason) LIKE '%{}%' OR LOWER(l.created_by) LIKE '%{}%'",
-                s_lower, s_lower, s_lower, s_lower
+                " WHERE LOWER(l.reference) LIKE '%{}%' OR LOWER(l.transaction_type) LIKE '%{}%' OR LOWER(l.optional_reason) LIKE '%{}%' OR LOWER(l.created_by) LIKE '%{}%' OR LOWER(m.part_name) LIKE '%{}%' OR LOWER(m.description) LIKE '%{}%'",
+                s_lower, s_lower, s_lower, s_lower, s_lower, s_lower
             ));
         }
     }
 
     // 2. Get Total Count
-    let count_query = format!("SELECT COUNT(*) FROM stock_ledger l {}", where_clause);
+    let count_query = format!("SELECT COUNT(*) FROM stock_ledger l JOIN stock_master m ON l.stock_id = m.stock_id {}", where_clause);
     let total_count: i64 = sqlx::query_scalar(&count_query)
         .fetch_one(&state.pool)
         .await
@@ -401,15 +401,16 @@ pub async fn get_history(
 
     // 3. Fetch Data
     let query = format!(
-        "SELECT l.*, 
+        "SELECT l.*, m.part_name, m.description,
         EXISTS(SELECT 1 FROM stock_ledger WHERE reference LIKE CONCAT('%Ledger ID: ', l.ledger_id, '%') AND transaction_type = 'REVERSAL') as is_already_reversed
         FROM stock_ledger l 
+        JOIN stock_master m ON l.stock_id = m.stock_id
         {} 
         ORDER BY l.transaction_date DESC LIMIT ? OFFSET ?",
         where_clause
     );
 
-    let items = sqlx::query_as::<sqlx::MySql, StockLedger>(&query)
+    let items = sqlx::query_as::<sqlx::MySql, HistoryEntry>(&query)
         .bind(page_size)
         .bind(offset)
         .fetch_all(&state.pool)
@@ -417,6 +418,49 @@ pub async fn get_history(
         .map_err(|e| e.to_string())?;
 
     Ok(HistoryResponse { items, total_count })
+}
+
+#[tauri::command]
+pub async fn get_export_history(
+    state: tauri::State<'_, AppState>,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    status: Option<String>,
+) -> Result<Vec<HistoryEntry>, String> {
+    let mut where_clause = String::from("WHERE 1=1");
+    
+    if let Some(from) = date_from {
+        if !from.is_empty() {
+            where_clause.push_str(&format!(" AND l.transaction_date >= '{}'", from));
+        }
+    }
+    if let Some(to) = date_to {
+        if !to.is_empty() {
+            where_clause.push_str(&format!(" AND l.transaction_date <= '{} 23:59:59'", to)); // End of day
+        }
+    }
+    if let Some(s) = status {
+        if !s.is_empty() && s != "All" {
+            where_clause.push_str(&format!(" AND l.transaction_type = '{}'", s));
+        }
+    }
+
+    let query = format!(
+        "SELECT l.*, m.part_name, m.description,
+        EXISTS(SELECT 1 FROM stock_ledger WHERE reference LIKE CONCAT('%Ledger ID: ', l.ledger_id, '%') AND transaction_type = 'REVERSAL') as is_already_reversed
+        FROM stock_ledger l 
+        JOIN stock_master m ON l.stock_id = m.stock_id
+        {}
+        ORDER BY l.transaction_date DESC",
+        where_clause
+    );
+
+    let items = sqlx::query_as::<sqlx::MySql, HistoryEntry>(&query)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(items)
 }
 
 #[tauri::command]

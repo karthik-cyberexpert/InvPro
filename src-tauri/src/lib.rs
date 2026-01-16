@@ -32,7 +32,8 @@ pub fn run() {
                 get_history,
                 reverse_transaction,
                 add_stock_entry,
-                add_stock_quantity
+                add_stock_quantity,
+                get_export_history
             ])
             .run(tauri::generate_context!())
             .expect("error while running tauri application");

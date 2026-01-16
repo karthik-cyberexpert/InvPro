@@ -52,8 +52,16 @@ pub struct Stats {
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct HistoryEntry {
-    #[sqlx(flatten)]
-    pub ledger: StockLedger,
+    pub ledger_id: i32,
+    pub stock_id: String,
+    pub transaction_type: String,
+    pub quantity_change: Decimal,
+    pub transaction_date: DateTime<Utc>,
+    pub reference: Option<String>,
+    pub optional_reason: Option<String>,
+    pub created_by: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub is_already_reversed: Option<bool>,
     pub part_name: Option<String>,
     pub description: Option<String>,
 }
