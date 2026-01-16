@@ -50,4 +50,12 @@ pub struct Stats {
     pub low_stock_count: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct HistoryEntry {
+    #[sqlx(flatten)]
+    pub ledger: StockLedger,
+    pub part_name: Option<String>,
+    pub description: Option<String>,
+}
+
 
